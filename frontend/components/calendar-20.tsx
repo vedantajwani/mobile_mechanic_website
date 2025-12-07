@@ -15,7 +15,7 @@ type Calendar20Props = {
 
 function timeToString(hour24: number, minute: number) {
   const hour12 = hour24 > 12 ? hour24 - 12 : hour24;
-  const suffix = hour24 > 12 ? "PM" : "AM";
+  const suffix = hour24 > 11 && hour24 != 24 ? "PM" : "AM";
   return `${hour12.toString()}:${minute.toString().padStart(2, "0")} ${suffix}`;
 }
 
