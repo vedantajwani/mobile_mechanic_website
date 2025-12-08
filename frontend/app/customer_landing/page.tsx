@@ -23,6 +23,48 @@ import {
 
 import { uploadImage, deleteImage } from "@/lib/storage";
 
+import { useAuth } from "@/app/AuthContext";
+
+const API_URL = process.env.NEXT_PUBLIC_API_URL;
+
+type BookingRow = {
+  id: string;
+  email: string;
+  make: string;
+  model: string;
+  year: string | null;
+  address: string;
+  description: string;
+  datetime: string;
+};
+
+type UiAppointment = {
+  id: string;
+  date: string;
+  time: string;
+  address: string;
+  make: string;
+  model: string;
+  year: string;
+  issue: string;
+  datetime: string;
+};
+
+function formatDateTime(iso: string) {
+  const d = new Date(iso);
+  const date = d.toLocaleDateString("en-US", {
+    weekday: "long",
+    month: "long",
+    day: "numeric",
+    year: "numeric",
+  });
+  const time = d.toLocaleTimeString("en-US", {
+    hour: "numeric",
+    minute: "2-digit",
+  });
+  return { date, time };
+}
+
 function MessagingButton() {
   const router = useRouter();
   return (
@@ -63,76 +105,161 @@ function BillingButton() {
 }
 
 export default function Customer_Landing() {
-  const [appointment, setAppointment] = React.useState<null | {
-    date: string;
-    time: string;
-    address: string;
-    make: string;
-    model: string;
-    year: string;
-    issue: string;
-  }>(null);
+  const router = useRouter();
+  const { user, loading } = useAuth();
 
+  const profileName = user?.fullName || "Customer";
+  const profileEmail = user?.email || "";
+  const profilePhone = user?.phone || "";
+
+  const [allUpcoming, setAllUpcoming] = React.useState<UiAppointment[]>([]);
+  const [allPast, setAllPast] = React.useState<UiAppointment[]>([]);
+
+  const [appointment, setAppointment] = React.useState<UiAppointment | null>(
+    null
+  );
   const [isEditing, setIsEditing] = React.useState(false);
   const [editedAppointment, setEditedAppointment] =
-    React.useState<typeof appointment>(null);
+    React.useState<UiAppointment | null>(null);
+
+  const [bookingsLoading, setBookingsLoading] = React.useState(false);
+  const [bookingsError, setBookingsError] = React.useState<string | null>(null);
 
   const [imageDialogOpen, setImageDialogOpen] = React.useState(false);
   const [images, setImages] = React.useState<string[]>([]);
   const [uploadingImage, setUploadingImage] = React.useState(false);
   const fileInputRef = React.useRef<HTMLInputElement | null>(null);
 
+  const [editingId, setEditingId] = React.useState<string | null>(null);
 
-  // Mock appointment for demonstration
+  const [activeImageId, setActiveImageId] = React.useState<string | null>(null);
+
   React.useEffect(() => {
-    setAppointment({
-      date: "Monday, December 29, 2025",
-      time: "3:00–4:00 PM",
-      address: "620 Massachusetts Ave, Amherst, MA",
-      make: "Toyota",
-      model: "Corolla",
-      year: "2010",
-      issue:
-        "some annoying lil kids came by on Halloween n they were dressed as Michael Meyers n they smashed my windshield in",
-    });
-  }, []);
+    if (!loading && !user) {
+      router.push("/auth/login");
+    }
+  }, [loading, user, router]);
+
+  React.useEffect(() => {
+    if (!API_URL) {
+      console.error("API_BASE is not defined");
+      return;
+    }
+
+    if (!user || !API_URL) return;
+
+    const email = user.email;
+    const controller = new AbortController();
+    let cancelled = false;
+
+    const fetchBookings = async () => {
+      setBookingsLoading(true);
+      setBookingsError(null);
+
+      try {
+        const url = `${API_URL}/get-bookings?email=${encodeURIComponent(
+          email
+        )}`;
+        const res = await fetch(url, { signal: controller.signal });
+
+        if (!res.ok) {
+          const data = await res.json().catch(() => null);
+          const msg = data?.detail || "Failed to load bookings";
+          throw new Error(msg);
+        }
+
+        const json = await res.json();
+        const rows: BookingRow[] = json.Bookings || [];
+        const now = new Date();
+
+        const mapped: UiAppointment[] = rows.map((b) => {
+          const { date, time } = formatDateTime(b.datetime);
+          return {
+            id: b.id,
+            date,
+            time,
+            address: b.address,
+            make: b.make,
+            model: b.model,
+            year: b.year ?? "",
+            issue: b.description,
+            datetime: b.datetime,
+          };
+        });
+
+        const upcoming = mapped
+          .filter((a) => new Date(a.datetime) >= now)
+          .sort(
+            (a, b) =>
+              new Date(a.datetime).getTime() - new Date(b.datetime).getTime()
+          );
+
+        const past = mapped
+          .filter((a) => new Date(a.datetime) < now)
+          .sort(
+            (a, b) =>
+              new Date(b.datetime).getTime() - new Date(a.datetime).getTime()
+          );
+
+        if (cancelled) return;
+
+        setAllUpcoming(upcoming);
+        setAllPast(past);
+        setAppointment(upcoming[0] || past[0] || null);
+      } catch (err: any) {
+        if (err?.name === "AbortError" || cancelled) return;
+        console.error(err);
+        setBookingsError(err.message ?? "Failed to load bookings");
+      } finally {
+        if (!cancelled) {
+          setBookingsLoading(false);
+        }
+      }
+    };
+
+    fetchBookings();
+
+    return () => {
+      cancelled = true;
+      controller.abort();
+    };
+  }, [user, router]);
 
   // Handle edit mode toggle
-  const handleModify = () => {
-    if (appointment) {
-      setEditedAppointment({ ...appointment });
-      setIsEditing(true);
-    }
+  const handleModify = (apt: UiAppointment) => {
+    setEditedAppointment({ ...apt });
+    setEditingId(apt.id);
   };
 
   // Handle cancel
   const handleCancel = () => {
-    setIsEditing(false);
+    setEditingId(null);
     setEditedAppointment(null);
   };
 
   // Handle save
   const handleSave = () => {
-    if (editedAppointment) {
-      setAppointment(editedAppointment);
-      setIsEditing(false);
-    }
+    if (!editedAppointment || !editingId) return;
+
+    setAllUpcoming((prev) =>
+      prev.map((a) => (a.id === editingId ? editedAppointment : a))
+    );
+
+    setEditingId(null);
+    setEditedAppointment(null);
   };
 
   // Handle input change
-  const handleChange = (
-    field: keyof NonNullable<typeof appointment>,
-    value: string
-  ) => {
+  const handleChange = (field: keyof UiAppointment, value: string) => {
     if (!editedAppointment) return;
     setEditedAppointment({ ...editedAppointment, [field]: value });
   };
 
-  const handleOpenImages = () => {
-    if (!appointment) return;
+  const handleOpenImages = (apt: UiAppointment) => {
+    setActiveImageId(apt.id);
     setImageDialogOpen(true);
   };
-
+  
   const handleImageFileChange = async (
     e: React.ChangeEvent<HTMLInputElement>
   ) => {
@@ -170,6 +297,16 @@ export default function Customer_Landing() {
     setImages((prev) => prev.filter((u) => u !== url));
   };
 
+  if (loading || !user) {
+    return (
+      <div className="min-h-screen bg-gray-50">
+        <NavBar />
+        <div className="max-w-5xl mx-auto p-6 bg-white text-xl text-center mt-8">
+          Loading...
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -189,14 +326,17 @@ export default function Customer_Landing() {
                 Personal Information
               </h2>
               <p>
-                <span className="font-medium">Name:</span> John Doe
+                <span className="font-medium">Name:</span> {profileName}
               </p>
               <p>
-                <span className="font-medium">Email:</span> johndoe@gmail.com
+                <span className="font-medium">Email:</span> {profileEmail}
               </p>
-              <p>
-                <span className="font-medium">Phone Number:</span> 123-456-7890
-              </p>
+              {profilePhone && (
+                <p>
+                  <span className="font-medium">Phone Number:</span>{" "}
+                  {profilePhone}
+                </p>
+              )}
             </div>
 
             <div className="flex flex-col sm:flex-row gap-4">
@@ -216,149 +356,246 @@ export default function Customer_Landing() {
           </CardHeader>
 
           <CardContent>
-            {appointment ? (
-              <div className="border rounded-md bg-gray-50 p-5">
-                {isEditing ? (
-                  <>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700">
-                          Date
-                        </label>
-                        <Input
-                          value={editedAppointment?.date || ""}
-                          onChange={(e) => handleChange("date", e.target.value)}
-                        />
-                      </div>
+            {bookingsLoading && (
+              <div className="text-gray-600 text-center py-6 italic">
+                Loading appointments…
+              </div>
+            )}
 
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700">
-                          Time
-                        </label>
-                        <Input
-                          value={editedAppointment?.time || ""}
-                          onChange={(e) => handleChange("time", e.target.value)}
-                        />
-                      </div>
+            {bookingsError && (
+              <div className="text-red-600 text-center py-6">
+                {bookingsError}
+              </div>
+            )}
 
-                      <div className="md:col-span-2">
-                        <label className="block text-sm font-medium text-gray-700">
-                          Address
-                        </label>
-                        <Input
-                          value={editedAppointment?.address || ""}
-                          onChange={(e) =>
-                            handleChange("address", e.target.value)
-                          }
-                        />
-                      </div>
+            {!bookingsLoading && !appointment && !bookingsError && (
+              <div className="text-gray-600 text-center py-6 italic">
+                No upcoming appointments.
+              </div>
+            )}
 
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700">
-                          Make
-                        </label>
-                        <Input
-                          value={editedAppointment?.make || ""}
-                          onChange={(e) => handleChange("make", e.target.value)}
-                        />
-                      </div>
+            {allUpcoming.length != 0 ? (
+              <div className="space-y-4">
+                {allUpcoming.map((apt) => {
+                  const isThisEditing = editingId === apt.id;
+                  const current =
+                    isThisEditing && editedAppointment
+                      ? editedAppointment
+                      : apt;
 
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700">
-                          Model
-                        </label>
-                        <Input
-                          value={editedAppointment?.model || ""}
-                          onChange={(e) =>
-                            handleChange("model", e.target.value)
-                          }
-                        />
-                      </div>
+                  return (
+                    <div
+                      key={apt.id}
+                      className="border rounded-md bg-gray-50 p-5"
+                    >
+                      {isThisEditing ? (
+                        <>
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div>
+                              <label className="block text-sm font-medium text-gray-700">
+                                Date
+                              </label>
+                              <Input
+                                value={current.date}
+                                onChange={(e) =>
+                                  handleChange("date", e.target.value)
+                                }
+                              />
+                            </div>
 
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700">
-                          Year
-                        </label>
-                        <Input
-                          value={editedAppointment?.year || ""}
-                          onChange={(e) => handleChange("year", e.target.value)}
-                        />
-                      </div>
+                            <div>
+                              <label className="block text-sm font-medium text-gray-700">
+                                Time
+                              </label>
+                              <Input
+                                value={current.time}
+                                onChange={(e) =>
+                                  handleChange("time", e.target.value)
+                                }
+                              />
+                            </div>
 
-                      <div className="md:col-span-2">
-                        <label className="block text-sm font-medium text-gray-700">
-                          Issue
-                        </label>
-                        <Input
-                          value={editedAppointment?.issue || ""}
-                          onChange={(e) =>
-                            handleChange("issue", e.target.value)
-                          }
-                        />
-                      </div>
+                            <div className="md:col-span-2">
+                              <label className="block text-sm font-medium text-gray-700">
+                                Address
+                              </label>
+                              <Input
+                                value={current.address}
+                                onChange={(e) =>
+                                  handleChange("address", e.target.value)
+                                }
+                              />
+                            </div>
+
+                            <div>
+                              <label className="block text-sm font-medium text-gray-700">
+                                Make
+                              </label>
+                              <Input
+                                value={current.make}
+                                onChange={(e) =>
+                                  handleChange("make", e.target.value)
+                                }
+                              />
+                            </div>
+
+                            <div>
+                              <label className="block text-sm font-medium text-gray-700">
+                                Model
+                              </label>
+                              <Input
+                                value={current.model}
+                                onChange={(e) =>
+                                  handleChange("model", e.target.value)
+                                }
+                              />
+                            </div>
+
+                            <div>
+                              <label className="block text-sm font-medium text-gray-700">
+                                Year
+                              </label>
+                              <Input
+                                value={current.year}
+                                onChange={(e) =>
+                                  handleChange("year", e.target.value)
+                                }
+                              />
+                            </div>
+
+                            <div className="md:col-span-2">
+                              <label className="block text-sm font-medium text-gray-700">
+                                Issue
+                              </label>
+                              <Input
+                                value={current.issue}
+                                onChange={(e) =>
+                                  handleChange("issue", e.target.value)
+                                }
+                              />
+                            </div>
+                          </div>
+
+                          <div className="flex gap-4 mt-6">
+                            <Button
+                              variant="outline"
+                              className="flex-1"
+                              onClick={handleCancel}
+                            >
+                              <X className="w-4 h-4 mr-1" /> Cancel
+                            </Button>
+                            <Button className="flex-1" onClick={handleSave}>
+                              <Check className="w-4 h-4 mr-1" /> Save Changes
+                            </Button>
+                          </div>
+                        </>
+                      ) : (
+                        <>
+                          <p className="font-semibold text-lg mb-2">
+                            {current.date}
+                          </p>
+                          <p>
+                            <span className="font-medium">Time:</span>{" "}
+                            {current.time}
+                          </p>
+                          <p>
+                            <span className="font-medium">Address:</span>{" "}
+                            {current.address}
+                          </p>
+                          <p>
+                            <span className="font-medium">Make:</span>{" "}
+                            {current.make}
+                          </p>
+                          <p>
+                            <span className="font-medium">Model:</span>{" "}
+                            {current.model}
+                          </p>
+                          {current.year && (
+                            <p>
+                              <span className="font-medium">Year:</span>{" "}
+                              {current.year}
+                            </p>
+                          )}
+                          <p className="truncate">
+                            <span className="font-medium">Issue:</span>{" "}
+                            {current.issue}
+                          </p>
+
+                          <div className="flex flex-col sm:flex-row gap-4 mt-4">
+                            <Button
+                              variant="outline"
+                              className="flex-1 text-base"
+                              onClick={() => handleOpenImages(apt)}
+                            >
+                              View/Upload Images
+                            </Button>
+                            <Button
+                              variant="outline"
+                              className="flex-1 text-base"
+                              onClick={() => handleModify(apt)}
+                            >
+                              Modify Booking
+                            </Button>
+                          </div>
+                        </>
+                      )}
                     </div>
-
-                    <div className="flex gap-4 mt-6">
-                      <Button
-                        variant="outline"
-                        className="flex-1"
-                        onClick={handleCancel}
-                      >
-                        <X className="w-4 h-4 mr-1" /> Cancel
-                      </Button>
-                      <Button className="flex-1" onClick={handleSave}>
-                        <Check className="w-4 h-4 mr-1" /> Save Changes
-                      </Button>
-                    </div>
-                  </>
-                ) : (
-                  <>
-                    <p className="font-semibold text-lg mb-2">
-                      {appointment.date}
-                    </p>
-                    <p>
-                      <span className="font-medium">Time:</span>{" "}
-                      {appointment.time}
-                    </p>
-                    <p>
-                      <span className="font-medium">Address:</span>{" "}
-                      {appointment.address}
-                    </p>
-                    <p>
-                      <span className="font-medium">Make:</span>{" "}
-                      {appointment.make}
-                    </p>
-                    <p>
-                      <span className="font-medium">Model:</span>{" "}
-                      {appointment.model}
-                    </p>
-                    <p>
-                      <span className="font-medium">Year:</span>{" "}
-                      {appointment.year}
-                    </p>
-                    <p className="truncate">
-                      <span className="font-medium">Issue:</span>{" "}
-                      {appointment.issue}
-                    </p>
-
-                    <div className="flex flex-col sm:flex-row gap-4 mt-4">
-                      <Button variant="outline" className="flex-1 text-base" onClick={handleOpenImages}>
-                        View/Upload Images
-                      </Button>
-                      <Button
-                        variant="outline"
-                        className="flex-1 text-base"
-                        onClick={handleModify}
-                      >
-                        Modify Booking
-                      </Button>
-                    </div>
-                  </>
-                )}
+                  );
+                })}
               </div>
             ) : (
               <div className="text-gray-600 text-center py-6 italic">
                 No upcoming appointments.
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Past Appointments */}
+        <Card className="bg-white rounded-md">
+          <CardHeader>
+            <CardTitle className="text-2xl font-semibold">
+              Past Appointments
+            </CardTitle>
+          </CardHeader>
+
+          <CardContent>
+            {allPast.length === 0 ? (
+              <div className="text-gray-600 text-center py-6 italic">
+                No past appointments.
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {allPast.map((apt) => (
+                  <div
+                    key={apt.id}
+                    className="border rounded-md bg-gray-50 p-4"
+                  >
+                    <p className="font-semibold text-lg mb-2">{apt.date}</p>
+                    <p>
+                      <span className="font-medium">Time:</span> {apt.time}
+                    </p>
+                    <p>
+                      <span className="font-medium">Address:</span>{" "}
+                      {apt.address}
+                    </p>
+                    <p>
+                      <span className="font-medium">Make:</span> {apt.make}
+                    </p>
+                    <p>
+                      <span className="font-medium">Model:</span> {apt.model}
+                    </p>
+                    {apt.year && (
+                      <p>
+                        <span className="font-medium">Year:</span> {apt.year}
+                      </p>
+                    )}
+                    <p className="">
+                      <span className="font-medium">Issue:</span> {apt.issue}
+                    </p>
+                    {/* read-only: no buttons */}
+                  </div>
+                ))}
               </div>
             )}
           </CardContent>
@@ -422,15 +659,16 @@ export default function Customer_Landing() {
               </div>
             )}
             <div className="flex justify-end pt-4">
-              <Button variant="default" onClick={() => setImageDialogOpen(false)}>
+              <Button
+                variant="default"
+                onClick={() => setImageDialogOpen(false)}
+              >
                 OK
               </Button>
             </div>
-
           </div>
         </DialogContent>
       </Dialog>
-
     </div>
   );
 }
