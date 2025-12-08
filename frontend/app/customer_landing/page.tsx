@@ -203,10 +203,17 @@ export default function Customer_Landing() {
         setAllUpcoming(upcoming);
         setAllPast(past);
         setAppointment(upcoming[0] || past[0] || null);
-      } catch (err: any) {
-        if (err?.name === "AbortError" || cancelled) return;
+      } catch (err: unknown) {
+        if (err instanceof DOMException && err.name === "AbortError") {
+          return;
+        }
+        
         console.error(err);
-        setBookingsError(err.message ?? "Failed to load bookings");
+
+        const message =
+          err instanceof Error ? err.message : "Failed to load bookings.";
+
+        alert(message);
       } finally {
         if (!cancelled) {
           setBookingsLoading(false);
@@ -302,9 +309,13 @@ export default function Customer_Landing() {
 
       setEditingId(null);
       setEditedAppointment(null);
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error(err);
-      alert(err.message ?? "Failed to update booking.");
+
+      const message =
+        err instanceof Error ? err.message : "Failed to update booking.";
+
+      alert(message);
     }
   };
 
@@ -598,7 +609,7 @@ export default function Customer_Landing() {
               <div className="text-gray-600 text-center py-6 italic">
                 No upcoming appointments.
               </div>
-            ) : null }
+            ) : null}
           </CardContent>
         </Card>
 
@@ -657,7 +668,7 @@ export default function Customer_Landing() {
                   </div>
                 ))}
               </div>
-            ): null}
+            ) : null}
           </CardContent>
         </Card>
       </div>

@@ -199,9 +199,17 @@ export default function Customer_Landing() {
 
       setAppointments(upcoming);
       setPrevAppointments(past);
-    } catch (err: any) {
+    } catch (err: unknown) {
+      if (err instanceof DOMException && err.name === "AbortError") {
+        return;
+      }
+
       console.error(err);
-      setBookingsError(err.message ?? "Failed to load bookings.");
+
+      const message =
+        err instanceof Error ? err.message : "Failed to load bookings.";
+
+      alert(message);
     } finally {
       setBookingsLoading(false);
     }
@@ -223,7 +231,7 @@ export default function Customer_Landing() {
     setEditedAppointment(null);
   };
 
-  // Handle save edit 
+  // Handle save edit
   const handleSave = async () => {
     if (!editedAppointment || !editingId) return;
 
@@ -246,7 +254,7 @@ export default function Customer_Landing() {
 
     const payload = {
       id: editingId,
-      email: editedAppointment.email, 
+      email: editedAppointment.email,
       make: editedAppointment.make,
       model: editedAppointment.model,
       year: editedAppointment.year || null,
@@ -286,12 +294,15 @@ export default function Customer_Landing() {
 
       setEditingId(null);
       setEditedAppointment(null);
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error(err);
-      alert(err.message ?? "Failed to update booking.");
+
+      const message =
+        err instanceof Error ? err.message : "Failed to update booking.";
+
+      alert(message);
     }
   };
-
 
   // Handle input change while editing
   const handleChange = (field: keyof Appointment, value: string) => {
