@@ -52,6 +52,9 @@ type UiAppointment = {
 
 function formatDateTime(iso: string) {
   const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) {
+    return { date: iso, time: "" };
+  }
   const date = d.toLocaleDateString("en-US", {
     weekday: "long",
     month: "long",
@@ -140,11 +143,6 @@ export default function Customer_Landing() {
   }, [loading, user, router]);
 
   React.useEffect(() => {
-    if (!API_URL) {
-      console.error("API_BASE is not defined");
-      return;
-    }
-
     if (!user || !API_URL) return;
 
     const email = user.email;
@@ -263,14 +261,14 @@ export default function Customer_Landing() {
     }
 
     const payload = {
-      id: editingId, 
-      email: user.email, 
+      id: editingId,
+      email: user.email,
       make: editedAppointment.make,
       model: editedAppointment.model,
       year: editedAppointment.year || null,
       address: editedAppointment.address,
       description: editedAppointment.issue,
-      datetime: newDateTimeIso, 
+      datetime: newDateTimeIso,
     };
 
     try {
@@ -596,28 +594,38 @@ export default function Customer_Landing() {
                   );
                 })}
               </div>
-            ) : (
+            ) : !bookingsLoading ? (
               <div className="text-gray-600 text-center py-6 italic">
                 No upcoming appointments.
               </div>
-            )}
+            ) : null }
           </CardContent>
         </Card>
 
-        {/* Past Appointments */}
+        {/* Previous Appointments */}
         <Card className="bg-white rounded-md">
           <CardHeader>
             <CardTitle className="text-2xl font-semibold">
-              Past Appointments
+              Previous Appointments
             </CardTitle>
           </CardHeader>
 
+          {bookingsLoading && (
+            <div className="text-gray-600 text-center italic">
+              Loading appointments…
+            </div>
+          )}
+
+          {bookingsError && (
+            <div className="text-red-600 text-center">{bookingsError}</div>
+          )}
+
           <CardContent>
-            {allPast.length === 0 ? (
+            {allPast.length === 0 && !bookingsLoading ? (
               <div className="text-gray-600 text-center py-6 italic">
-                No past appointments.
+                No previous appointments.
               </div>
-            ) : (
+            ) : allPast.length > 0 ? (
               <div className="space-y-4">
                 {allPast.map((apt) => (
                   <div
@@ -650,7 +658,7 @@ export default function Customer_Landing() {
                   </div>
                 ))}
               </div>
-            )}
+            ): null}
           </CardContent>
         </Card>
       </div>
