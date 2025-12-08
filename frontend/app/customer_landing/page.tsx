@@ -118,7 +118,6 @@ export default function Customer_Landing() {
   const [appointment, setAppointment] = React.useState<UiAppointment | null>(
     null
   );
-  const [isEditing, setIsEditing] = React.useState(false);
   const [editedAppointment, setEditedAppointment] =
     React.useState<UiAppointment | null>(null);
 
@@ -238,15 +237,77 @@ export default function Customer_Landing() {
   };
 
   // Handle save
-  const handleSave = () => {
+  const handleSave = async () => {
     if (!editedAppointment || !editingId) return;
 
-    setAllUpcoming((prev) =>
-      prev.map((a) => (a.id === editingId ? editedAppointment : a))
-    );
+    if (!user) {
+      alert("You must be signed in to edit a booking.");
+      return;
+    }
 
-    setEditingId(null);
-    setEditedAppointment(null);
+    let newDateTimeIso = editedAppointment.datetime;
+
+    if (editedAppointment.date && editedAppointment.time) {
+      const combined = new Date(
+        `${editedAppointment.date} ${editedAppointment.time}`
+      );
+
+      if (isNaN(combined.getTime())) {
+        alert(
+          "Please enter a valid date and time (e.g. 2025-12-31 and 15:00 or December 31, 2025 and 3:00 PM)."
+        );
+        return;
+      }
+
+      newDateTimeIso = combined.toISOString();
+    }
+
+    const payload = {
+      id: editingId, 
+      email: user.email, 
+      make: editedAppointment.make,
+      model: editedAppointment.model,
+      year: editedAppointment.year || null,
+      address: editedAppointment.address,
+      description: editedAppointment.issue,
+      datetime: newDateTimeIso, 
+    };
+
+    try {
+      const res = await fetch(`${API_URL}/edit-booking`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+
+      if (!res.ok) {
+        const data = await res.json().catch(() => null);
+        const msg = data?.detail || "Failed to update booking.";
+        throw new Error(msg);
+      }
+
+      setAllUpcoming((prev) =>
+        prev.map((a) =>
+          a.id === editingId
+            ? { ...a, ...editedAppointment, datetime: newDateTimeIso }
+            : a
+        )
+      );
+
+      setAllPast((prev) =>
+        prev.map((a) =>
+          a.id === editingId
+            ? { ...a, ...editedAppointment, datetime: newDateTimeIso }
+            : a
+        )
+      );
+
+      setEditingId(null);
+      setEditedAppointment(null);
+    } catch (err: any) {
+      console.error(err);
+      alert(err.message ?? "Failed to update booking.");
+    }
   };
 
   // Handle input change
@@ -259,7 +320,7 @@ export default function Customer_Landing() {
     setActiveImageId(apt.id);
     setImageDialogOpen(true);
   };
-  
+
   const handleImageFileChange = async (
     e: React.ChangeEvent<HTMLInputElement>
   ) => {
@@ -357,21 +418,13 @@ export default function Customer_Landing() {
 
           <CardContent>
             {bookingsLoading && (
-              <div className="text-gray-600 text-center py-6 italic">
+              <div className="text-gray-600 text-center italic">
                 Loading appointments…
               </div>
             )}
 
             {bookingsError && (
-              <div className="text-red-600 text-center py-6">
-                {bookingsError}
-              </div>
-            )}
-
-            {!bookingsLoading && !appointment && !bookingsError && (
-              <div className="text-gray-600 text-center py-6 italic">
-                No upcoming appointments.
-              </div>
+              <div className="text-red-600 text-center">{bookingsError}</div>
             )}
 
             {allUpcoming.length != 0 ? (

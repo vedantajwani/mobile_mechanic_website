@@ -8,6 +8,7 @@ from datetime import datetime
 from typing import Optional
 from datetime import datetime as dt
 from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy.pool import NullPool
 
 load_dotenv(dotenv_path=Path(__file__).parent / ".env")
 
@@ -20,7 +21,7 @@ DB_NAME = os.getenv("DB_NAME")
 
 DATABASE_URL = f"postgresql://{DB_USER}:{DB_PASS}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
 
-engine = create_engine(DATABASE_URL, connect_args={"sslmode": "require"})
+engine = create_engine(DATABASE_URL, connect_args={"sslmode": "require"}, poolclass=NullPool, pool_pre_ping=True,)
 
 app = FastAPI()
 
