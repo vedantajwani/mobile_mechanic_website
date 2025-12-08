@@ -223,18 +223,75 @@ export default function Customer_Landing() {
     setEditedAppointment(null);
   };
 
-  // Handle save edit
-  const handleSaveEdit = () => {
+  // Handle save edit 
+  const handleSave = async () => {
     if (!editedAppointment || !editingId) return;
 
-    setAppointments((prev) =>
-      prev.map((appt) =>
-        appt.id === editingId ? { ...editedAppointment } : appt
-      )
-    );
-    setEditingId(null);
-    setEditedAppointment(null);
+    let newDateTimeIso = editedAppointment.datetime;
+
+    if (editedAppointment.date && editedAppointment.time) {
+      const combined = new Date(
+        `${editedAppointment.date} ${editedAppointment.time}`
+      );
+
+      if (isNaN(combined.getTime())) {
+        alert(
+          "Please enter a valid date and time (e.g. 2025-12-31 and 15:00 or December 31, 2025 and 3:00 PM)."
+        );
+        return;
+      }
+
+      newDateTimeIso = combined.toISOString();
+    }
+
+    const payload = {
+      id: editingId,
+      email: editedAppointment.email, 
+      make: editedAppointment.make,
+      model: editedAppointment.model,
+      year: editedAppointment.year || null,
+      address: editedAppointment.address,
+      description: editedAppointment.issue,
+      datetime: newDateTimeIso,
+    };
+
+    try {
+      const res = await fetch(`${API_URL}/edit-booking`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+
+      if (!res.ok) {
+        const data = await res.json().catch(() => null);
+        const msg = data?.detail || "Failed to update booking.";
+        throw new Error(msg);
+      }
+
+      setAppointments((prev) =>
+        prev.map((a) =>
+          a.id === editingId
+            ? { ...a, ...editedAppointment, datetime: newDateTimeIso }
+            : a
+        )
+      );
+
+      setPrevAppointments((prev) =>
+        prev.map((a) =>
+          a.id === editingId
+            ? { ...a, ...editedAppointment, datetime: newDateTimeIso }
+            : a
+        )
+      );
+
+      setEditingId(null);
+      setEditedAppointment(null);
+    } catch (err: any) {
+      console.error(err);
+      alert(err.message ?? "Failed to update booking.");
+    }
   };
+
 
   // Handle input change while editing
   const handleChange = (field: keyof Appointment, value: string) => {
@@ -491,7 +548,7 @@ export default function Customer_Landing() {
                           >
                             <X className="w-4 h-4 mr-1" /> Cancel
                           </Button>
-                          <Button className="flex-1" onClick={handleSaveEdit}>
+                          <Button className="flex-1" onClick={handleSave}>
                             <Check className="w-4 h-4 mr-1" /> Save Changes
                           </Button>
                         </div>
@@ -506,6 +563,10 @@ export default function Customer_Landing() {
                           {appointment.address}
                         </p>
                         <div className={isExpanded ? "" : "hidden"}>
+                          <p>
+                            <span className="font-medium">Email:</span>{" "}
+                            {appointment.email}
+                          </p>
                           <p>
                             <span className="font-medium">Make:</span>{" "}
                             {appointment.make}
@@ -570,7 +631,7 @@ export default function Customer_Landing() {
               <div className="text-gray-600 text-center py-6 italic">
                 No upcoming appointments.
               </div>
-            ): null }
+            ) : null}
           </CardContent>
         </Card>
 

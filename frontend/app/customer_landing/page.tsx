@@ -38,7 +38,7 @@ type BookingRow = {
   datetime: string;
 };
 
-type UiAppointment = {
+type Appointment = {
   id: string;
   date: string;
   time: string;
@@ -115,14 +115,14 @@ export default function Customer_Landing() {
   const profileEmail = user?.email || "";
   const profilePhone = user?.phone || "";
 
-  const [allUpcoming, setAllUpcoming] = React.useState<UiAppointment[]>([]);
-  const [allPast, setAllPast] = React.useState<UiAppointment[]>([]);
+  const [allUpcoming, setAllUpcoming] = React.useState<Appointment[]>([]);
+  const [allPast, setAllPast] = React.useState<Appointment[]>([]);
 
-  const [appointment, setAppointment] = React.useState<UiAppointment | null>(
+  const [appointment, setAppointment] = React.useState<Appointment | null>(
     null
   );
   const [editedAppointment, setEditedAppointment] =
-    React.useState<UiAppointment | null>(null);
+    React.useState<Appointment | null>(null);
 
   const [bookingsLoading, setBookingsLoading] = React.useState(false);
   const [bookingsError, setBookingsError] = React.useState<string | null>(null);
@@ -169,7 +169,7 @@ export default function Customer_Landing() {
         const rows: BookingRow[] = json.Bookings || [];
         const now = new Date();
 
-        const mapped: UiAppointment[] = rows.map((b) => {
+        const mapped: Appointment[] = rows.map((b) => {
           const { date, time } = formatDateTime(b.datetime);
           return {
             id: b.id,
@@ -223,7 +223,7 @@ export default function Customer_Landing() {
   }, [user, router]);
 
   // Handle edit mode toggle
-  const handleModify = (apt: UiAppointment) => {
+  const handleModify = (apt: Appointment) => {
     setEditedAppointment({ ...apt });
     setEditingId(apt.id);
   };
@@ -309,12 +309,12 @@ export default function Customer_Landing() {
   };
 
   // Handle input change
-  const handleChange = (field: keyof UiAppointment, value: string) => {
+  const handleChange = (field: keyof Appointment, value: string) => {
     if (!editedAppointment) return;
     setEditedAppointment({ ...editedAppointment, [field]: value });
   };
 
-  const handleOpenImages = (apt: UiAppointment) => {
+  const handleOpenImages = (apt: Appointment) => {
     setActiveImageId(apt.id);
     setImageDialogOpen(true);
   };
@@ -654,7 +654,6 @@ export default function Customer_Landing() {
                     <p className="">
                       <span className="font-medium">Issue:</span> {apt.issue}
                     </p>
-                    {/* read-only: no buttons */}
                   </div>
                 ))}
               </div>
