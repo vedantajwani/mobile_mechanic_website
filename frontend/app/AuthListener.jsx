@@ -5,70 +5,56 @@ import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient"; // update adjust path to client
 import { useAuth } from "@/app/AuthContext";
 
-// update line below before push
-const MECHANIC_LANDING_PATH = "/mechanic_landing";
-
 export default function AuthListener() {
   const router = useRouter();
-  const { setUser } = useAuth();
+  const { setUser, setLoading } = useAuth();
 
   useEffect(() => {
-    //Handles logged in users like when refreshing
-    // it ruins tests and demos, so I (Mitchell) am taking it out for now, but it would
-    //be an easier product to use witht his async function.
-    (async () => {
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
+    let isMounted = true;
 
-      if (session?.user) {
-        const userID = session.user.id;
-        const userEmail = session.user.email;
+    const init = async () => {
+      setLoading(true);
 
-        const { data: profile, error: profileError } = await supabase
-          .from("profiles")
-          .select("role")
-          .eq("id", userID)
-          .maybeSingle();
+      try {
+        const {
+          data: { session },
+          error,
+        } = await supabase.auth.getSession();
 
-        if (profileError) {
-          console.error("Error fetching profile:", profileError);
+        if (!isMounted) return;
+
+        if (error) {
+          console.error("AuthListener: error getting session", error);
+          setUser(null);
           return;
         }
 
-        const rawRole = profile?.role;
-        const isMechanic =
-          rawRole === true ||
-          rawRole === "true" ||
-          rawRole === 1 ||
-          rawRole === "1";
+        if (!session?.user) {
+          setUser(null);
+          return;
+        }
 
-        setUser({
-          id: userID,
-          email: userEmail,
-          isMechanic: isMechanic,
-        });
+        const userID = session.user.id;
+        const userEmail = session.user.email ?? "";
 
-        await redirectByRole(isMechanic, router);
-      }
-    })();
-
-    // listening for login or log out
-    const { data: listener } = supabase.auth.onAuthStateChange(
-      async (event, session) => {
-        if (event === "SIGNED_IN" && session?.user) {
-          const userID = session.user.id;
-          const userEmail = session.user.email;
-
+        try {
           const { data: profile, error: profileError } = await supabase
             .from("profiles")
-            .select("role")
+            .select("role, full_name, phone_number")
             .eq("id", userID)
             .maybeSingle();
 
+          if (!isMounted) return;
+
           if (profileError) {
-            console.error("Error fetching profile:", profileError);
-            setError("Error fetching profile: " + profileError.message);
+            console.error("AuthListener: error fetching profile", profileError);
+            setUser({
+              id: userID,
+              email: userEmail,
+              isMechanic: false,
+              fullName: null,
+              phone: null,
+            });
             return;
           }
 
@@ -78,9 +64,93 @@ export default function AuthListener() {
             rawRole === "true" ||
             rawRole === 1 ||
             rawRole === "1";
-          setUser({ id: userID, email: userEmail, isMechanic: isMechanic });
 
-          await redirectByRole(isMechanic, router);
+          setUser({
+            id: userID,
+            email: userEmail,
+            isMechanic,
+            fullName: profile?.full_name ?? null,
+            phone: profile?.phone ?? null,
+          });
+        } catch (err) {
+          console.error("AuthListener: unexpected error in profile fetch", err);
+          setUser({
+            id: userID,
+            email: userEmail,
+            isMechanic: false,
+            fullName: null,
+            phone: null,
+          });
+        }
+      } catch (err) {
+        console.error("AuthListener: unexpected error in init", err);
+        if (isMounted) {
+          setUser(null);
+        }
+      } finally {
+        if (isMounted) {
+          setLoading(false);
+          console.log("AuthListener: loading -> false");
+        }
+      }
+    };
+
+    init();
+
+    // listening for login or log out 
+    const { data: listener } = supabase.auth.onAuthStateChange(
+      async (event, session) => {
+        if (event === "SIGNED_IN" && session?.user) {
+          const userID = session.user.id;
+          const userEmail = session.user.email ?? "";
+
+          try {
+            const { data: profile, error: profileError } = await supabase
+              .from("profiles")
+              .select("role, full_name, phone_number")
+              .eq("id", userID)
+              .maybeSingle();
+
+            if (profileError) {
+              console.error(
+                "AuthListener: error fetching profile on SIGNED_IN",
+                profileError
+              );
+              setUser({
+                id: userID,
+                email: userEmail,
+                isMechanic: false,
+                fullName: null,
+                phone: null,
+              });
+            } else {
+              const rawRole = profile?.role;
+              const isMechanic =
+                rawRole === true ||
+                rawRole === "true" ||
+                rawRole === 1 ||
+                rawRole === "1";
+
+              setUser({
+                id: userID,
+                email: userEmail,
+                isMechanic,
+                fullName: profile?.full_name ?? null,
+                phone: profile?.phone ?? null,
+              });
+
+              await redirectByRole(isMechanic, router);
+            }
+          } catch (err) {
+            console.error("AuthListener: unexpected error on SIGNED_IN", err);
+            setUser({
+              id: userID,
+              email: userEmail,
+              isMechanic: false,
+              fullName: null,
+              phone: null,
+            });
+          }
         }
 
         if (event === "SIGNED_OUT") {
@@ -91,9 +161,10 @@ export default function AuthListener() {
     );
 
     return () => {
+      isMounted = false;
       listener?.subscription?.unsubscribe();
     };
-  }, [router, setUser]);
+  }, [router, setUser, setLoading]);
 
   return null;
 }
@@ -101,31 +172,6 @@ export default function AuthListener() {
 // fetches profile.role from Supabase
 // select role true is our mechanic
 async function redirectByRole(isMechanic, router) {
-  // const { data: profile, error: profileError } = await supabase
-  //   .from("profiles")
-  //   .select("role")
-  //   .eq("id", userId)
-  //   .maybeSingle();
-
-  // console.log("Profile from Supabase:", {
-  //   profile,
-  //   profileError,
-  //   role: profile?.role,
-  //   roleType: typeof profile?.role,
-  // });
-
-  // // If the profile query itself failed, show the error and stop.
-  // if (profileError) {
-  //   console.error("Error fetching profile:", profileError);
-  //   setError("Error fetching profile: " + profileError.message);
-  //   return;
-  // }
-
-  // // sorry the true is just not working lol
-  // const rawRole = profile?.role;
-  // const isMechanic =
-  //   rawRole === true || rawRole === "true" || rawRole === 1 || rawRole === "1";
-
   if (isMechanic) {
     console.log("Role treated as MECHANIC → /mechanic_landing");
     router.push("/mechanic_landing");

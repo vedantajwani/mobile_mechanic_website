@@ -7,8 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import SliderDemo from "../mechanic_landing/Slider.jsx";
-import { cn } from "@/lib/utils";
-// Note: Label import removed since it wasn't used here
+
 import {
   Popover,
   PopoverContent,
@@ -77,9 +76,40 @@ function AvailabilityButton() {
   );
 }
 
-// ---- Types ----
+const API_URL = process.env.NEXT_PUBLIC_API_URL;
+
+type BookingRow = {
+  id: string;
+  email: string;
+  make: string;
+  model: string;
+  year: string | null;
+  address: string;
+  description: string;
+  datetime: string;
+};
+
+function formatDateTime(iso: string) {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) {
+    return { date: iso, time: "" };
+  }
+  const date = d.toLocaleDateString("en-US", {
+    weekday: "long",
+    month: "long",
+    day: "numeric",
+    year: "numeric",
+  });
+  const time = d.toLocaleTimeString("en-US", {
+    hour: "numeric",
+    minute: "2-digit",
+  });
+  return { date, time };
+}
+
 type Appointment = {
   id: string;
+  email: string;
   date: string;
   time: string;
   address: string;
@@ -87,6 +117,7 @@ type Appointment = {
   model: string;
   year: string;
   issue: string;
+  datetime: string;
 };
 
 export default function Customer_Landing() {
@@ -95,6 +126,9 @@ export default function Customer_Landing() {
   const [prevAppointments, setPrevAppointments] = React.useState<Appointment[]>(
     []
   );
+
+  const [bookingsLoading, setBookingsLoading] = React.useState(false);
+  const [bookingsError, setBookingsError] = React.useState<string | null>(null);
 
   const [editingId, setEditingId] = React.useState<string | null>(null);
   const [editedAppointment, setEditedAppointment] =
@@ -111,44 +145,79 @@ export default function Customer_Landing() {
   const [open, setOpen] = React.useState(false); // whether or not popover is open
   const [draftRadius, setDraftRadius] = React.useState(radius); // temp user value
 
-  React.useEffect(() => {
-    setAppointments([
-      {
-        id: "upcoming-1",
-        date: "Monday, December 29, 2025",
-        time: "3:00–4:00 PM",
-        address: "620 Massachusetts Ave, Amherst, MA",
-        make: "Toyota",
-        model: "Corolla",
-        year: "2010",
-        issue:
-          "some annoying lil kids came by on Halloween n they were dressed as Michael Meyers n they smashed my windshield in",
-      },
-      {
-        id: "upcoming-2",
-        date: "Tuesday, January 6, 2026",
-        time: "9:00–10:30 AM",
-        address: "15 Main Street, Hadley, MA",
-        make: "Honda",
-        model: "Civic",
-        year: "2015",
-        issue: "check engine light keeps coming on intermittently",
-      },
-    ]);
+  const fetchBookings = React.useCallback(async () => {
+    setBookingsLoading(true);
+    setBookingsError(null);
 
-    setPrevAppointments([
-      {
-        id: "prev-1",
-        date: "Wednesday, October 1, 2025",
-        time: "1:00–2:00 PM",
-        address: "10 Pleasant St, Amherst, MA",
-        make: "Ford",
-        model: "F-150",
-        year: "2018",
-        issue: "oil leak from under the engine",
-      },
-    ]);
+    try {
+      const res = await fetch(`${API_URL}/get-bookings`);
+
+      if (!res.ok) {
+        const data = await res.json().catch(() => null);
+        const msg = data?.detail || "Failed to load bookings.";
+        throw new Error(msg);
+      }
+
+      const json = await res.json();
+      const rows: BookingRow[] = json.Bookings || json.bookings || [];
+
+      const now = new Date();
+      const upcoming: Appointment[] = [];
+      const past: Appointment[] = [];
+
+      for (const row of rows) {
+        const { date, time } = formatDateTime(row.datetime);
+        const base: Appointment = {
+          id: String(row.id),
+          email: row.email,
+          date,
+          time,
+          address: row.address,
+          make: row.make,
+          model: row.model,
+          year: row.year ?? "",
+          issue: row.description,
+          datetime: row.datetime,
+        };
+
+        const when = new Date(row.datetime);
+        if (!Number.isNaN(when.getTime()) && when >= now) {
+          upcoming.push(base);
+        } else {
+          past.push(base);
+        }
+      }
+
+      upcoming.sort(
+        (a, b) =>
+          new Date(a.datetime).getTime() - new Date(b.datetime).getTime()
+      );
+      past.sort(
+        (a, b) =>
+          new Date(b.datetime).getTime() - new Date(a.datetime).getTime()
+      );
+
+      setAppointments(upcoming);
+      setPrevAppointments(past);
+    } catch (err: unknown) {
+      if (err instanceof DOMException && err.name === "AbortError") {
+        return;
+      }
+
+      console.error(err);
+
+      const message =
+        err instanceof Error ? err.message : "Failed to load bookings.";
+
+      alert(message);
+    } finally {
+      setBookingsLoading(false);
+    }
   }, []);
+
+  React.useEffect(() => {
+    fetchBookings();
+  }, [fetchBookings]);
 
   // Handle edit mode toggle for a specific appointment
   const handleModify = (appointment: Appointment) => {
@@ -163,16 +232,76 @@ export default function Customer_Landing() {
   };
 
   // Handle save edit
-  const handleSaveEdit = () => {
+  const handleSave = async () => {
     if (!editedAppointment || !editingId) return;
 
-    setAppointments((prev) =>
-      prev.map((appt) =>
-        appt.id === editingId ? { ...editedAppointment } : appt
-      )
-    );
-    setEditingId(null);
-    setEditedAppointment(null);
+    let newDateTimeIso = editedAppointment.datetime;
+
+    if (editedAppointment.date && editedAppointment.time) {
+      const combined = new Date(
+        `${editedAppointment.date} ${editedAppointment.time}`
+      );
+
+      if (isNaN(combined.getTime())) {
+        alert(
+          "Please enter a valid date and time (e.g. 2025-12-31 and 15:00 or December 31, 2025 and 3:00 PM)."
+        );
+        return;
+      }
+
+      newDateTimeIso = combined.toISOString();
+    }
+
+    const payload = {
+      id: editingId,
+      email: editedAppointment.email,
+      make: editedAppointment.make,
+      model: editedAppointment.model,
+      year: editedAppointment.year || null,
+      address: editedAppointment.address,
+      description: editedAppointment.issue,
+      datetime: newDateTimeIso,
+    };
+
+    try {
+      const res = await fetch(`${API_URL}/edit-booking`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+
+      if (!res.ok) {
+        const data = await res.json().catch(() => null);
+        const msg = data?.detail || "Failed to update booking.";
+        throw new Error(msg);
+      }
+
+      setAppointments((prev) =>
+        prev.map((a) =>
+          a.id === editingId
+            ? { ...a, ...editedAppointment, datetime: newDateTimeIso }
+            : a
+        )
+      );
+
+      setPrevAppointments((prev) =>
+        prev.map((a) =>
+          a.id === editingId
+            ? { ...a, ...editedAppointment, datetime: newDateTimeIso }
+            : a
+        )
+      );
+
+      setEditingId(null);
+      setEditedAppointment(null);
+    } catch (err: unknown) {
+      console.error(err);
+
+      const message =
+        err instanceof Error ? err.message : "Failed to update booking.";
+
+      alert(message);
+    }
   };
 
   // Handle input change while editing
@@ -313,6 +442,16 @@ export default function Customer_Landing() {
             </CardTitle>
           </CardHeader>
 
+          {bookingsLoading && (
+            <div className="text-gray-600 text-center italic">
+              Loading appointments…
+            </div>
+          )}
+
+          {bookingsError && (
+            <div className="text-red-600 text-center">{bookingsError}</div>
+          )}
+
           <CardContent className="space-y-4">
             {appointments.length > 0 ? (
               appointments.map((appointment) => {
@@ -420,7 +559,7 @@ export default function Customer_Landing() {
                           >
                             <X className="w-4 h-4 mr-1" /> Cancel
                           </Button>
-                          <Button className="flex-1" onClick={handleSaveEdit}>
+                          <Button className="flex-1" onClick={handleSave}>
                             <Check className="w-4 h-4 mr-1" /> Save Changes
                           </Button>
                         </div>
@@ -435,6 +574,10 @@ export default function Customer_Landing() {
                           {appointment.address}
                         </p>
                         <div className={isExpanded ? "" : "hidden"}>
+                          <p>
+                            <span className="font-medium">Email:</span>{" "}
+                            {appointment.email}
+                          </p>
                           <p>
                             <span className="font-medium">Make:</span>{" "}
                             {appointment.make}
@@ -495,11 +638,11 @@ export default function Customer_Landing() {
                   </div>
                 );
               })
-            ) : (
+            ) : !bookingsLoading ? (
               <div className="text-gray-600 text-center py-6 italic">
                 No upcoming appointments.
               </div>
-            )}
+            ) : null}
           </CardContent>
         </Card>
 
@@ -510,6 +653,16 @@ export default function Customer_Landing() {
               Previous Appointments
             </CardTitle>
           </CardHeader>
+
+          {bookingsLoading && (
+            <div className="text-gray-600 text-center italic">
+              Loading appointments…
+            </div>
+          )}
+
+          {bookingsError && (
+            <div className="text-red-600 text-center">{bookingsError}</div>
+          )}
 
           <CardContent className="space-y-4">
             {prevAppointments.length > 0 ? (
@@ -535,11 +688,11 @@ export default function Customer_Landing() {
                   </p>
                 </div>
               ))
-            ) : (
+            ) : !bookingsLoading ? (
               <div className="text-gray-600 text-center py-6 italic">
-                No past appointments.
+                No previous appointments.
               </div>
-            )}
+            ) : null}
           </CardContent>
         </Card>
       </div>

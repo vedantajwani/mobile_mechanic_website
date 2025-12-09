@@ -7,6 +7,8 @@ from pathlib import Path
 from datetime import datetime
 from typing import Optional
 from datetime import datetime as dt
+from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy.pool import NullPool
 
 load_dotenv(dotenv_path=Path(__file__).parent / ".env")
 
@@ -19,10 +21,22 @@ DB_NAME = os.getenv("DB_NAME")
 
 DATABASE_URL = f"postgresql://{DB_USER}:{DB_PASS}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
 
-engine = create_engine(DATABASE_URL, connect_args={"sslmode": "require"})
-
+engine = create_engine(DATABASE_URL, connect_args={"sslmode": "require"}, poolclass=NullPool, pool_pre_ping=True,)
 
 app = FastAPI()
+
+origins = [
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+]
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins, 
+    allow_credentials=True,
+    allow_methods=["*"], 
+    allow_headers=["*"], 
+)
 
 def get_db():
     with engine.begin() as conn:
@@ -91,16 +105,21 @@ def delete_booking(email: EmailStr, date_time: datetime, test:bool = Query(defau
         raise HTTPException(status_code=400, detail = f"Error deleting booking: {str(e)}")
 
 @app.get("/get-bookings")  
-def get_all_bookings(test:bool = Query(default=False)):
+def get_all_bookings(test:bool = Query(default=False), email: Optional[EmailStr] = None,):
     table = get_table_name(test)
-    query = text(f""" SELECT * FROM {table} ORDER BY datetime DESC; """)
+    if email:
+        query = text(f""" SELECT * FROM {table} WHERE email = :email ORDER BY datetime DESC; """)
+        params = {"email": email}
+    else:
+        query = text(f""" SELECT * FROM {table} ORDER BY datetime DESC; """)
+        params = {}
     try:
         with engine.begin() as conn:
-            res = conn.execute(query)
+            res = conn.execute(query, params)
             bookings = [dict(row._mapping) for row in res]
         return {"Bookings": bookings}
     except Exception as e:
-        raise HTTPException(status_code=400, detail = f"Error fetch bookings: {str(e)}")
+        raise HTTPException(status_code=400, detail = f"Error fetching bookings: {str(e)}")
     
 @app.put("/edit-booking")
 def edit_booking(edit: EditBooking, test:bool = Query(default=False)):
