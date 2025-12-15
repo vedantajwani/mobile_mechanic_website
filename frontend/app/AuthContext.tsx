@@ -1,25 +1,43 @@
 "use client";
 
-import React, { createContext, useContext, useState } from "react";
+import React, {
+  createContext,
+  useContext,
+  useState,
+  Dispatch,
+  SetStateAction,
+} from "react";
 
-type AuthUser = {
+export type AuthUser = {
   id: string;
-  email: string | null;
+  email: string;        
   isMechanic: boolean;
-} | null;
+  fullName?: string | null;
+  phone?: string | null;
+};
 
 type AuthContextValue = {
-  user: AuthUser;
-  setUser: React.Dispatch<React.SetStateAction<AuthUser>>;
+  user: AuthUser | null;                                
+  setUser: Dispatch<SetStateAction<AuthUser | null>>;   
+  loading: boolean;
+  setLoading: Dispatch<SetStateAction<boolean>>;
 };
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const [user, setUser] = useState<AuthUser>(null);
+  const [user, setUser] = useState<AuthUser | null>(null);
+  const [loading, setLoading] = useState<boolean>(true);
+
+  const value: AuthContextValue = {
+    user,
+    setUser,
+    loading,
+    setLoading,
+  };
 
   return (
-    <AuthContext.Provider value={{ user, setUser }}>
+    <AuthContext.Provider value={value}>
       {children}
     </AuthContext.Provider>
   );
