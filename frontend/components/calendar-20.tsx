@@ -1,16 +1,18 @@
 "use client"
 
 import * as React from "react"
-
 import { Button } from "@/components/ui/button"
 import { Calendar } from "@/components/ui/calendar"
 import { Card, CardContent, CardFooter } from "@/components/ui/card"
 
-export default function Calendar20() {
-  const [date, setDate] = React.useState<Date | undefined>(
-    new Date(2025, 5, 12)
-  )
-  const [selectedTime, setSelectedTime] = React.useState<string | null>("10:00")
+export default function Calendar20({
+  onDateTimeChange,
+}: {
+  onDateTimeChange: (dateTime: Date | null) => void
+}) {
+  const [date, setDate] = React.useState<Date | undefined>(new Date())
+  const [selectedTime, setSelectedTime] = React.useState<string | null>(null)
+
   const timeSlots = Array.from({ length: 37 }, (_, i) => {
     const totalMinutes = i * 15
     const hour = Math.floor(totalMinutes / 60) + 9
@@ -20,35 +22,42 @@ export default function Calendar20() {
       .padStart(2, "0")}`
   })
 
-  const bookedDates = Array.from({ length: 3 }, (_, i) => new Date(2025, 5, 17 + i))
+  const handleDateSelect = (newDate: Date | undefined) => {
+    setDate(newDate)
+    updateDateTime(newDate, selectedTime)
+  }
+
+  const handleTimeSelect = (time: string) => {
+    setSelectedTime(time)
+    updateDateTime(date, time)
+  }
+
+  const updateDateTime = (d: Date | undefined, t: string | null) => {
+    if (d && t) {
+      const [hours, minutes] = t.split(":").map(Number)
+      const newDateTime = new Date(d)
+      newDateTime.setHours(hours, minutes, 0, 0)
+
+      onDateTimeChange(newDateTime)
+    } else {
+      onDateTimeChange(null)
+    }
+  }
 
   return (
     <Card className="gap-0 p-0">
       <CardContent className="p-0">
         <div className="flex">
-          {/* Calendar Section */}
+          {/* Calendar Selection */}
           <div className="p-6">
             <Calendar
               mode="single"
               selected={date}
-              onSelect={setDate}
-              defaultMonth={date}
-              disabled={bookedDates}
+              onSelect={handleDateSelect}
               showOutsideDays={false}
-              modifiers={{
-                booked: bookedDates,
-              }}
-              modifiersClassNames={{
-                booked: "[&>button]:line-through opacity-100",
-              }}
               className="bg-transparent p-0"
-              formatters={{
-                formatWeekdayName: (date) =>
-                  date.toLocaleString("en-US", { weekday: "short" }),
-              }}
             />
           </div>
-
           {/* Time Selector Section */}
           <div className="flex w-40 flex-col border-l">
             <div className="h-[400px] overflow-y-scroll p-4">
@@ -57,7 +66,7 @@ export default function Calendar20() {
                   <Button
                     key={time}
                     variant={selectedTime === time ? "default" : "outline"}
-                    onClick={() => setSelectedTime(time)}
+                    onClick={() => handleTimeSelect(time)}
                     className="w-full shadow-none text-sm"
                   >
                     {time}
@@ -75,7 +84,7 @@ export default function Calendar20() {
             <>
               Your appointment is booked for{" "}
               <span className="font-medium">
-                {date?.toLocaleDateString("en-US", {
+                {date.toLocaleDateString("en-US", {
                   weekday: "long",
                   day: "numeric",
                   month: "long",
